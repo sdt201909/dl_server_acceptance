@@ -380,7 +380,7 @@ class SuiteRunner:
                 enabled=self.config.test_enabled("nvbandwidth"),
             ),
             self._nccl_stage("nccl_all_reduce", "all_reduce_perf", required=False),
-            self._torch_stage(required=False),
+            self._torch_stage(required=self.suite in {"standard", "full", "burnin"}),
         ]
         if self.suite in {"standard", "full", "burnin"}:
             stages.extend(
@@ -509,8 +509,7 @@ class SuiteRunner:
         torch_cfg = self.config.get("torch_ddp", {})
         nproc = int(torch_cfg.get("nproc_per_node", self.config.get("expected.gpu_count", 4)))
         script = Path(__file__).resolve().parents[1] / "scripts" / "torch_ddp_smoke.py"
-        cmd = [
-            "torchrun",
+        args = [
             "--standalone",
             f"--nproc-per-node={nproc}",
             str(script),
@@ -521,7 +520,10 @@ class SuiteRunner:
             "--dtype",
             str(torch_cfg.get("dtype", "fp16")),
         ]
-        return StageSpec("torch_ddp", "PyTorch DDP smoke test", cmd=cmd, command_type="torch_ddp", tool="torchrun", timeout=None, enabled=self.config.test_enabled("torch_ddp"), required=required)
+        torchrun_cmd = shlex.join(["torchrun", *args])
+        python_module_cmd = shlex.join(["python3", "-m", "torch.distributed.run", *args])
+        cmd = ["bash", "-lc", f"if command -v torchrun >/dev/null 2>&1; then {torchrun_cmd}; else {python_module_cmd}; fi"]
+        return StageSpec("torch_ddp", "PyTorch DDP smoke test", cmd=cmd, command_type="torch_ddp", tool=None, timeout=None, enabled=self.config.test_enabled("torch_ddp"), required=required)
 
     def _combined_stage(self, duration: int) -> StageSpec:
         fio = self.config.get("fio", {})
@@ -589,6 +591,19 @@ class SuiteRunner:
         self.events.write({"timestamp": started, "event": "stage_start", "suite": self.suite, "stage": stage.name, "title": stage.title})
         if not stage.enabled:
             return self._finish_stage(base, "SKIPPED", "disabled by config")
+        if stage.name == "torch_ddp" and not self._torch_ddp_available():
+            severity = "HIGH" if stage.required else "INFO"
+            self.risk_engine.add(
+                severity,
+                "SOFTWARE",
+                "PyTorch distributed smoke test is unavailable" if stage.required else "Optional PyTorch distributed smoke test is unavailable",
+                "Neither torchrun nor python3 -m torch.distributed.run is usable in this environment.",
+                evidence="python3 -c 'import torch; import torch.distributed.run'",
+                stage=stage.name,
+                suggested_action="Install a CUDA-enabled PyTorch build and ensure torch.distributed.run works before formal acceptance.",
+                dedupe_key=f"{stage.name}|torch_unavailable",
+            )
+            return self._finish_stage(base, "SKIPPED", "PyTorch distributed unavailable")
         if stage.tool and shutil.which(stage.tool) is None:
             severity = "WARN" if stage.required else "INFO"
             self.risk_engine.add(
@@ -700,3 +715,10 @@ class SuiteRunner:
         if not self.dry_run:
             ensure_dir(self.config.fio_test_dir)
         return ""
+
+    @staticmethod
+    def _torch_ddp_available() -> bool:
+        if shutil.which("torchrun"):
+            return True
+        code, _, _ = run_capture(["python3", "-c", "import torch; import torch.distributed.run"], timeout=15)
+        return code == 0

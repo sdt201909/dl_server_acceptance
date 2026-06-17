@@ -340,6 +340,11 @@ class RiskEngine:
             outliers = parsers.bandwidth_outliers([float(v) for v in bus_values], float(self.config.get("thresholds.nccl_bandwidth_outlier_ratio_warn", 0.65)))
             if outliers:
                 self.add("WARN", "NCCL", "NCCL bandwidth outlier detected", "A parsed bandwidth value is far below the median; topology-specific review is needed.", str(outliers[:10]), stage, "Do not fail solely on this; compare with expected topology and rerun with NCCL_DEBUG=INFO.")
+        elif command_type == "torch_ddp":
+            if returncode not in (0, None):
+                self.add("CRITICAL", "NCCL", "PyTorch DDP smoke test returned non-zero", f"Return code: {returncode}", output[-3000:], stage, "Check CUDA-enabled PyTorch, NCCL backend, GPU visibility, and raw torch DDP log.")
+            if re.search(r"\b(ERROR|RuntimeError|ncclSystemError|ncclUnhandledCudaError|timeout|failed)\b", output, re.IGNORECASE):
+                self.add("CRITICAL", "NCCL", "PyTorch DDP smoke test output contains failure text", "DDP smoke output contains error/failure patterns.", output[-3000:], stage, "Review rank logs and verify CUDA/NCCL/PyTorch compatibility.")
         elif command_type == "nvbandwidth":
             parsed = parsers.parse_nvbandwidth_output(output)
             if returncode not in (0, None):
@@ -367,4 +372,3 @@ class RiskEngine:
                 self.add("WARN", "BMC", "ipmitool could not query BMC", f"Return code: {returncode}", output[-1000:], stage, "If BMC is expected, check permissions/network/channel configuration.")
             if re.search(r"\b(critical|non-recoverable|fan.*fail|psu.*fail|power.*critical|thermal.*critical)\b", output, re.IGNORECASE):
                 self.add("HIGH", "BMC", "BMC/IPMI reports critical power/thermal/fan event", "ipmitool output contains critical power/thermal/fan text.", output[-3000:], stage, "Review SEL/sensor details and contact supplier.")
-
