@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
 import shutil
 import time
 from dataclasses import asdict, dataclass
@@ -24,6 +25,7 @@ from .utils import (
     read_text_limited,
     run_capture,
     shlex_join,
+    strip_ansi,
     total_memory_gb,
     write_json,
 )
@@ -182,7 +184,7 @@ def collect_inventory(config: AcceptanceConfig, run_dir: Path | None = None) -> 
     code, out, err = run_capture(["nvcc", "--version"], timeout=15)
     inventory["driver"]["cuda_runtime_nvcc"] = out.strip() if code == 0 else None
     topology = inventory["commands"].get("nvidia_smi_topo", {})
-    inventory["topology"]["nvidia_smi_topo_m"] = topology.get("stdout", "")
+    inventory["topology"]["nvidia_smi_topo_m"] = strip_ansi(topology.get("stdout", ""))
 
     sudo_path = shutil.which("sudo")
     if sudo_path:
@@ -231,6 +233,15 @@ def _path_writable(path: Path) -> bool:
     while not probe.exists() and probe.parent != probe:
         probe = probe.parent
     return os.access(probe, os.W_OK)
+
+
+def sudo_readonly_cmd(command: str) -> list[str]:
+    quoted = shlex.quote(command)
+    return [
+        "bash",
+        "-lc",
+        f"if command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then sudo -n bash -lc {quoted}; else bash -lc {quoted}; fi",
+    ]
 
 
 def print_preflight(inventory: dict[str, Any]) -> None:
@@ -318,11 +329,11 @@ class SuiteRunner:
             StageSpec("inventory", "Collect inventory and baseline risk checks", internal="inventory", command_type="inventory"),
             StageSpec("nvidia_smi_q", "nvidia-smi -q", cmd=["nvidia-smi", "-q"], command_type="generic", tool="nvidia-smi"),
             StageSpec("nvidia_topo", "nvidia-smi topo -m", cmd=["nvidia-smi", "topo", "-m"], command_type="generic", tool="nvidia-smi"),
-            StageSpec("dmesg_scan", "Kernel log risk scan", cmd=["dmesg", "--ctime", "--kernel", "--color=never"], command_type="dmesg", tool="dmesg", required=False),
+            StageSpec("dmesg_scan", "Kernel log risk scan", cmd=sudo_readonly_cmd("dmesg --ctime --kernel --color=never"), command_type="dmesg", tool="dmesg", required=False),
             StageSpec(
                 "journalctl_kernel",
                 "journalctl kernel risk scan",
-                cmd=["journalctl", "-k", "-n", "5000", "--no-pager"],
+                cmd=sudo_readonly_cmd("journalctl -k -n 5000 --no-pager"),
                 command_type="dmesg",
                 tool="journalctl",
                 enabled=bool(self.config.get("monitor.capture_journalctl", False)),
@@ -351,7 +362,7 @@ class SuiteRunner:
             StageSpec(
                 "ipmi_health",
                 "BMC/IPMI sensors and SEL",
-                cmd=["bash", "-lc", "ipmitool sensor && ipmitool sel list"],
+                cmd=sudo_readonly_cmd("ipmitool sensor && ipmitool sel list"),
                 command_type="ipmi",
                 tool="ipmitool",
                 required=False,
@@ -382,7 +393,7 @@ class SuiteRunner:
                     StageSpec(
                         "smart_health",
                         "SMART/NVMe health checks",
-                        cmd=["bash", "-lc", "for d in /dev/nvme*n1 /dev/sd?; do [ -e \"$d\" ] && smartctl -x \"$d\"; done; nvme list || true"],
+                        cmd=sudo_readonly_cmd("for d in /dev/nvme*n1 /dev/sd?; do [ -e \"$d\" ] && smartctl -x \"$d\"; done; nvme list || true"),
                         command_type="smart",
                         tool="smartctl",
                         required=False,

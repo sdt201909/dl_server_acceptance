@@ -13,6 +13,7 @@ from typing import Any, Iterable
 
 
 NA_VALUES = {"", "N/A", "NA", "Not Supported", "[Not Supported]", "unknown", "Unknown", "None"}
+ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 
 
 def now_iso() -> str:
@@ -262,6 +263,10 @@ def format_gb(value: Any) -> str:
     return f"{number:.1f} GB"
 
 
+def strip_ansi(text: str) -> str:
+    return ANSI_ESCAPE_RE.sub("", text)
+
+
 def grep_any(lines: Iterable[str], patterns: Iterable[str], flags: int = re.IGNORECASE) -> list[tuple[str, str]]:
     hits: list[tuple[str, str]] = []
     compiled = [(pat, re.compile(pat, flags)) for pat in patterns]
@@ -270,4 +275,3 @@ def grep_any(lines: Iterable[str], patterns: Iterable[str], flags: int = re.IGNO
             if rx.search(line):
                 hits.append((pat, line.rstrip()))
     return hits
-
