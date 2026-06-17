@@ -343,7 +343,7 @@ class RiskEngine:
         elif command_type == "torch_ddp":
             if returncode not in (0, None):
                 self.add("CRITICAL", "NCCL", "PyTorch DDP smoke test returned non-zero", f"Return code: {returncode}", output[-3000:], stage, "Check CUDA-enabled PyTorch, NCCL backend, GPU visibility, and raw torch DDP log.")
-            if re.search(r"\b(ERROR|RuntimeError|ncclSystemError|ncclUnhandledCudaError|timeout|failed)\b", output, re.IGNORECASE):
+            if re.search(r"(ERROR:|Traceback \(most recent call last\)|RuntimeError|ChildFailedError|ncclSystemError|ncclUnhandledCudaError|timed out|timeout)", output, re.IGNORECASE):
                 self.add("CRITICAL", "NCCL", "PyTorch DDP smoke test output contains failure text", "DDP smoke output contains error/failure patterns.", output[-3000:], stage, "Review rank logs and verify CUDA/NCCL/PyTorch compatibility.")
         elif command_type == "nvbandwidth":
             parsed = parsers.parse_nvbandwidth_output(output)
