@@ -22,6 +22,17 @@ def test_dmesg_xid_detection():
     assert risks[0]["severity"] == "CRITICAL"
 
 
+def test_dmesg_edac_init_is_not_a_risk():
+    risks = parse_dmesg_lines("[123] EDAC MC0: Giving out device to module i10nm_edac controller")
+    assert risks == []
+
+
+def test_dmesg_edac_error_detection():
+    risks = parse_dmesg_lines("[123] EDAC MC0: 1 CE memory read error on CPU_SrcID#0_MC#0")
+    assert risks
+    assert risks[0]["severity"] == "HIGH"
+
+
 def test_dcgm_fail_and_skip_detection():
     parsed = parse_dcgm_output("GPU 0: Pass\nGPU 1: Failed\nPlugin X: Skip - Not Supported")
     assert parsed["failed"] is True
@@ -44,4 +55,3 @@ def test_fio_err_detection_json():
     parsed = parse_fio_json_or_text('{"jobs":[{"jobname":"randrw","error":28}]}')
     assert parsed["failed"] is True
     assert "error=28" in parsed["errors"][0]
-

@@ -213,7 +213,8 @@ CRITICAL_DMESG_PATTERNS = [
 HIGH_DMESG_PATTERNS = [
     r"AER:\s*Corrected",
     r"PCIe Bus Error.*corrected",
-    r"\bEDAC\b",
+    r"\bEDAC\b.*\b(error|fail|failed|failure|warning|critical|corrected|uncorrected|CE|UE)\b",
+    r"\b(error|fail|failed|failure|warning|critical|corrected|uncorrected|CE|UE)\b.*\bEDAC\b",
     r"thermal throttling",
 ]
 
@@ -255,4 +256,3 @@ def bandwidth_outliers(values: list[float], ratio: float) -> list[dict[str, Any]
     if med <= 0:
         return []
     return [{"value": value, "median": med, "ratio": value / med} for value in clean if value < med * ratio]
-
