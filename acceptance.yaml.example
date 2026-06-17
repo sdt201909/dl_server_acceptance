@@ -1,0 +1,111 @@
+expected:
+  gpu_count: 4
+  gpu_name_regex: "(RTX PRO 6000|PRO 6000|NVIDIA.*6000)"
+  gpu_memory_gb_min: 90
+  gpu_memory_gb_expected: 96
+
+paths:
+  work_dir: "./acceptance_runs"
+  fio_test_dir: "/mnt/test/fio_acceptance"
+  tools_dir: "./tools"
+
+monitor:
+  interval_sec: 5
+  capture_dmesg: true
+  capture_journalctl: false
+  dashboard: true
+
+thresholds:
+  gpu_temp_warn_c: 82
+  gpu_temp_crit_c: 88
+  gpu_peer_temp_delta_warn_c: 12
+  gpu_util_under_load_min_pct: 90
+  gpu_util_under_load_grace_sec: 120
+  gpu_power_peer_ratio_warn: 0.70
+  gpu_memory_error_crit: 1
+  cpu_load_warn_ratio: 0.95
+  mem_available_min_gb: 8
+  disk_free_min_gb: 200
+  nccl_bandwidth_outlier_ratio_warn: 0.65
+  nvbandwidth_outlier_ratio_warn: 0.65
+
+timeouts:
+  command_graceful_shutdown_sec: 15
+  monitor_short_sec: 60
+  dcgm_r1_sec: 300
+  dcgm_r2_sec: 900
+  dcgm_r3_sec: 3600
+  dcgm_r4_sec: 7200
+  gpu_burn_sec_quick: 600
+  gpu_burn_sec_standard: 7200
+  combined_sec_full: 21600
+  combined_sec_burnin: 86400
+
+tests:
+  enable_cpu_stress: true
+  enable_memtester: true
+  enable_fio: true
+  enable_smart: true
+  enable_dcgm: true
+  enable_dcgm_r4: false
+  enable_gpu_burn: true
+  enable_cuda_memtest: true
+  enable_nvbandwidth: true
+  enable_nccl_tests: true
+  enable_torch_ddp: true
+  enable_combined: true
+  enable_ipmi: true
+
+safety:
+  allow_destructive_disk_test: false
+  allow_gpu_setting_changes: false
+  stop_on_critical_risk: true
+  require_confirm_for_full_or_burnin: true
+
+fio:
+  size: "100G"
+  runtime_sec: 1800
+  direct: true
+  numjobs: 4
+  iodepth: 32
+  bs: "1M"
+
+memtester:
+  memory_fraction: 0.80
+  passes: 2
+
+stress_ng:
+  cpu_method: "matrixprod"
+  cpu_timeout_sec: 7200
+  vm_workers: 8
+  vm_bytes_fraction: 0.60
+
+nccl:
+  min_bytes: "8"
+  max_bytes: "8G"
+  factor: 2
+  gpus: 4
+
+torch_ddp:
+  nproc_per_node: 4
+  matrix_size: 2048
+  iterations: 20
+  dtype: "fp16"
+
+gpu_burn:
+  memory: "90%"
+  use_tensor_cores: true
+
+# Optional per-stage command override. Keys are stage names from `python acceptance.py run --dry-run`.
+# commands:
+#   nccl_all_reduce:
+#     - /opt/nccl-tests/build/all_reduce_perf
+#     - -b
+#     - "8"
+#     - -e
+#     - "8G"
+#     - -f
+#     - "2"
+#     - -g
+#     - "4"
+
