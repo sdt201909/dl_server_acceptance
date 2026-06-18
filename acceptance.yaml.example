@@ -65,6 +65,9 @@ safety:
 fio:
   size: "100G"
   runtime_sec: 1800
+  timeout_padding_sec: 900
+  job_name: "fio_acceptance"
+  filename_format: "fio_acceptance.$jobnum"
   direct: true
   numjobs: 4
   iodepth: 32
@@ -108,4 +111,3 @@ gpu_burn:
 #     - "2"
 #     - -g
 #     - "4"
-

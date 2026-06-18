@@ -76,6 +76,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "fio": {
         "size": "100G",
         "runtime_sec": 1800,
+        "timeout_padding_sec": 900,
+        "job_name": "fio_acceptance",
+        "filename_format": "fio_acceptance.$jobnum",
         "direct": True,
         "numjobs": 4,
         "iodepth": 32,

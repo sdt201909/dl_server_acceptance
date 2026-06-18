@@ -474,10 +474,12 @@ class SuiteRunner:
     def _fio_stage(self, name: str, rw: str) -> StageSpec:
         fio = self.config.get("fio", {})
         runtime = int(fio.get("runtime_sec", 1800))
+        timeout_padding = int(fio.get("timeout_padding_sec", 900))
         cmd = [
             "fio",
-            f"--name={name}",
+            f"--name={fio.get('job_name', 'fio_acceptance')}",
             f"--directory={self.config.fio_test_dir}",
+            f"--filename_format={fio.get('filename_format', 'fio_acceptance.$jobnum')}",
             f"--size={fio.get('size', '100G')}",
             f"--rw={rw}",
             f"--bs={fio.get('bs', '1M')}",
@@ -489,7 +491,7 @@ class SuiteRunner:
             "--group_reporting",
             "--output-format=json",
         ]
-        return StageSpec(name, f"fio {rw}", cmd=cmd, command_type="fio", tool="fio", timeout=runtime + 180, enabled=self.config.test_enabled("fio"), required=True)
+        return StageSpec(name, f"fio {rw}", cmd=cmd, command_type="fio", tool="fio", timeout=runtime + timeout_padding, enabled=self.config.test_enabled("fio"), required=True)
 
     def _gpu_burn_stage(self, name: str, duration: int, required: bool) -> StageSpec:
         memory = str(self.config.get("gpu_burn.memory", "90%"))
@@ -681,6 +683,17 @@ class SuiteRunner:
                 self.risk_engine.add("CRITICAL", "SYSTEM", "Combined load returned non-zero", f"Return code: {result.returncode}", output[-3000:], stage.name, "Inspect raw combined load log and individual tool output.")
             for ctype in ("stress_ng", "gpu_burn", "fio"):
                 self.risk_engine.evaluate_command_output(stage.name, ctype, output, result.returncode)
+            return
+        if stage.command_type == "fio" and result.timed_out:
+            self.risk_engine.add(
+                "HIGH",
+                "DISK",
+                "fio stage timed out",
+                f"Stage {stage.name} exceeded timeout={result.timeout}s. This means the test did not finish in the configured window; inspect raw fio logs and kernel storage logs before treating it as a disk hardware failure.",
+                output[-3000:],
+                stage.name,
+                "Check whether fio was creating/preconditioning files, whether fio.timeout_padding_sec is too small, and whether dmesg shows NVMe reset/I/O/media errors.",
+            )
             return
         self.risk_engine.evaluate_command_output(stage.name, stage.command_type, output, result.returncode)
 

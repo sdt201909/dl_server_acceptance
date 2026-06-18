@@ -204,6 +204,9 @@ timeouts:
 fio:
   size: "100G"
   runtime_sec: 300
+  timeout_padding_sec: 900
+  job_name: "fio_acceptance"
+  filename_format: "fio_acceptance.$jobnum"
 
 memtester:
   memory_fraction: 0.20
