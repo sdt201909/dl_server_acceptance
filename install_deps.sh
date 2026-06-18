@@ -55,7 +55,8 @@ install_ubuntu() {
   sudo apt-get update
   sudo apt-get install -y \
     python3 python3-pip python3-venv git build-essential cmake pkg-config \
-    pciutils numactl stress-ng memtester fio smartmontools nvme-cli lm-sensors ipmitool
+    pciutils numactl stress-ng memtester fio smartmontools nvme-cli lm-sensors ipmitool \
+    libboost-dev libboost-program-options-dev
 }
 
 install_rhel() {
@@ -66,7 +67,8 @@ install_rhel() {
   fi
   sudo "$installer" install -y \
     python3 python3-pip git gcc gcc-c++ make cmake pciutils numactl \
-    stress-ng memtester fio smartmontools nvme-cli lm_sensors ipmitool
+    stress-ng memtester fio smartmontools nvme-cli lm_sensors ipmitool \
+    boost-devel boost-program-options
 }
 
 check_cuda_build_env() {
@@ -131,14 +133,29 @@ build_cuda_memtest() {
       exit 1
     }
   fi
-  if [[ -f "$src/Makefile" ]]; then
+  if [[ -f "$src/CMakeLists.txt" ]]; then
+    local cmake_args=(-S "$src" -B "$src/build" -DCMAKE_BUILD_TYPE=Release)
+    if [[ -n "${CUDA_MEMTEST_CUDA_ARCHITECTURES:-}" ]]; then
+      cmake_args+=("-DCMAKE_CUDA_ARCHITECTURES=${CUDA_MEMTEST_CUDA_ARCHITECTURES}")
+    fi
+    cmake "${cmake_args[@]}"
+    cmake --build "$src/build" -j"$(nproc)"
+    find "$src/build" -type f -name cuda_memtest -perm -111 -exec ln -sf {} "$TOOLS_DIR/cuda_memtest_bin" \; || true
+    if [[ -e "$TOOLS_DIR/cuda_memtest_bin" ]]; then
+      ln -sf "$PWD/$TOOLS_DIR/cuda_memtest_bin" "$TOOLS_DIR/cuda_memtest"
+    fi
+  elif [[ -f "$src/Makefile" ]]; then
     make -C "$src"
     find "$src" -type f -name cuda_memtest -perm -111 -exec ln -sf {} "$TOOLS_DIR/cuda_memtest_bin" \; || true
     if [[ -e "$TOOLS_DIR/cuda_memtest_bin" ]]; then
       ln -sf "$PWD/$TOOLS_DIR/cuda_memtest_bin" "$TOOLS_DIR/cuda_memtest"
     fi
   else
-    echo "ERROR: cuda_memtest Makefile not found; inspect $src manually." >&2
+    echo "ERROR: cuda_memtest build file not found; expected CMakeLists.txt or Makefile under $src." >&2
+    exit 1
+  fi
+  if [[ ! -e "$TOOLS_DIR/cuda_memtest" ]]; then
+    echo "ERROR: cuda_memtest build finished but binary was not found under $src." >&2
     exit 1
   fi
 }
