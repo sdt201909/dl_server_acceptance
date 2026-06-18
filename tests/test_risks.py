@@ -35,3 +35,10 @@ def test_inventory_gpu_name_and_memory_risk():
     assert any("model" in r.title.lower() for r in engine.risks)
     assert any("memory" in r.title.lower() for r in engine.risks)
 
+
+def test_dcgm_unsupported_cuda_is_software_high_not_critical():
+    engine = RiskEngine(AcceptanceConfig({}))
+    engine.evaluate_command_output("dcgm_r1", "dcgm", "Detected unsupported Cuda version", 226)
+    assert engine.highest() == "HIGH"
+    assert not engine.has_critical()
+    assert engine.risks[0].category == "SOFTWARE"

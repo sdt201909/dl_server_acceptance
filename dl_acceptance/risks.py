@@ -312,7 +312,18 @@ class RiskEngine:
     def evaluate_command_output(self, stage: str, command_type: str, output: str, returncode: int | None) -> None:
         if command_type == "dcgm":
             parsed = parsers.parse_dcgm_output(output)
-            if returncode not in (0, None):
+            unsupported_cuda = re.search(r"unsupported\s+cuda\s+version|cuda\s+version.*not\s+supported", output, re.IGNORECASE)
+            if unsupported_cuda:
+                self.add(
+                    "HIGH",
+                    "SOFTWARE",
+                    "DCGM diagnostic cannot run with this CUDA/driver stack",
+                    f"Return code: {returncode}. DCGM reported an unsupported CUDA version, so this is a software compatibility/setup issue rather than direct hardware failure evidence.",
+                    output[-2000:],
+                    stage,
+                    "Install a DCGM package that supports the installed driver/CUDA stack, or use the NVIDIA-recommended datacenter driver/DCGM package combination, then rerun DCGM diagnostics.",
+                )
+            elif returncode not in (0, None):
                 self.add("CRITICAL", "DCGM", "DCGM diagnostic returned non-zero", f"Return code: {returncode}", output[-2000:], stage, "Review DCGM failure section and provide raw log to supplier.")
             if parsed["failed"]:
                 self.add("CRITICAL", "DCGM", "DCGM diagnostic reports Fail/Failed", "DCGM output contains failed test lines.", "\n".join(parsed["failures"][:20]), stage, "Review DCGM result details and contact supplier if hardware tests failed.")
