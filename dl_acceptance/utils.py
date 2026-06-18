@@ -142,7 +142,7 @@ def run_capture(cmd: list[str], timeout: int = 15) -> tuple[int | None, str, str
         proc = subprocess.run(cmd, text=True, capture_output=True, timeout=timeout)
         return proc.returncode, proc.stdout, proc.stderr
     except subprocess.TimeoutExpired as exc:
-        return 124, exc.stdout or "", (exc.stderr or "") + "\nTIMEOUT"
+        return 124, _coerce_output(exc.stdout), _coerce_output(exc.stderr) + "\nTIMEOUT"
     except Exception as exc:  # pragma: no cover - defensive for odd platform errors
         return None, "", str(exc)
 
@@ -161,13 +161,29 @@ def command_version(command: str) -> str | None:
         "nvme": ["nvme", "--version"],
         "ipmitool": ["ipmitool", "-V"],
         "torchrun": ["torchrun", "--help"],
+        "python3": ["python3", "--version"],
+        "bash": ["bash", "--version"],
+        "dmesg": ["dmesg", "--version"],
+        "journalctl": ["journalctl", "--version"],
+        "lspci": ["lspci", "--version"],
+        "lsblk": ["lsblk", "--version"],
     }
-    cmd = version_args.get(command, [command, "--version"])
+    cmd = version_args.get(command)
+    if cmd is None:
+        return None
     code, out, err = run_capture(cmd, timeout=8)
     text = (out or err).strip().splitlines()
     if code is None or not text:
         return None
     return text[0][:200]
+
+
+def _coerce_output(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return str(value)
 
 
 def shlex_join(cmd: list[str] | str) -> str:
