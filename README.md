@@ -518,6 +518,47 @@ dcgmi diag -r 1
 
 如果只是 DCGM 软件兼容问题，修好 DCGM 后重跑。若临时想收集非 DCGM 长稳数据，可以用 `--continue-on-error`，但这种结果不建议直接作为正式签收结论。
 
+### gpu-burn 立刻出现 DIED / read[N] error 怎么办
+
+如果 `gpu_burn` 在 0.x% 就退出，温度还很低，并出现 `DIED!`、`read[0] error`、`read[1] error`，先按软件/工具调用问题排查，不要直接判硬件坏。
+
+常见原因：
+
+- `gpu_burn` 没有从它自己的构建目录启动，导致同目录的 `compare.fatbin` 没有被正确加载。
+- `gpu_burn` 是用不匹配的 CUDA Toolkit 或 compute capability 编译的。
+- `-tc` Tensor Core 路径和当前 CUDA/driver/gpu-burn 组合不兼容。
+
+先更新工具仓库，最新版本会自动从 `gpu_burn` 真实二进制所在目录启动：
+
+```bash
+git pull --ff-only
+export PATH="$PWD/tools:$PATH"
+```
+
+然后做 30 秒短测：
+
+```bash
+cd /root/dl_server_acceptance
+python acceptance.py run --suite standard --config acceptance.gpu6h.yaml --dry-run
+
+realpath "$(command -v gpu_burn)"
+cd "$(dirname "$(realpath "$(command -v gpu_burn)")")"
+./gpu_burn -m 50% 30
+./gpu_burn -m 50% -tc 30
+```
+
+RTX PRO 6000 Blackwell 是 compute capability 12.0。如果短测仍失败，重新构建：
+
+```bash
+cd /root/dl_server_acceptance
+CUDA_HOME=/usr/local/cuda-12.8 GPU_BURN_COMPUTE=120 ./install_deps.sh --build-tools --tools-dir ./tools
+export PATH="$PWD/tools:$PATH"
+```
+
+如果无 `-tc` 能过、加 `-tc` 失败，先把 `acceptance.gpu6h.yaml` 中的 `gpu_burn.use_tensor_cores` 改成 `false` 跑完 GPU burn，再用 PyTorch DDP/NCCL 单独验证 Tensor Core/NCCL 路径。
+
+如果每张卡单独跑都会同样 0.x% 失败，通常更像工具/软件栈问题。如果只有某一张卡失败，或者同时出现 `NVRM: Xid`、掉卡、ECC uncorrectable、AER uncorrected，就按硬件/链路风险处理并联系供应商。
+
 ### 旧报告里的误报为什么还在
 
 报告是运行时写入的静态文件。更新代码后，旧 run 目录里的 `summary.md`、`summary.json`、`risks.jsonl` 不会自动重算。需要重新跑验收，或至少重新跑相关 suite，才能得到新规则下的报告。

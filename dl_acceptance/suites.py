@@ -494,12 +494,22 @@ class SuiteRunner:
         return StageSpec(name, f"fio {rw}", cmd=cmd, command_type="fio", tool="fio", timeout=runtime + timeout_padding, enabled=self.config.test_enabled("fio"), required=True)
 
     def _gpu_burn_stage(self, name: str, duration: int, required: bool) -> StageSpec:
-        memory = str(self.config.get("gpu_burn.memory", "90%"))
-        cmd = ["gpu_burn", "-m", memory]
-        if self.config.get("gpu_burn.use_tensor_cores", True):
-            cmd.append("-tc")
-        cmd.append(str(duration))
+        cmd = ["bash", "-lc", self._gpu_burn_shell(duration)]
         return StageSpec(name, f"gpu-burn {duration}s", cmd=cmd, command_type="gpu_burn", tool="gpu_burn", timeout=duration + 180, enabled=self.config.test_enabled("gpu_burn"), required=required)
+
+    def _gpu_burn_shell(self, duration: int) -> str:
+        args = ["-m", str(self.config.get("gpu_burn.memory", "90%"))]
+        if self.config.get("gpu_burn.use_tensor_cores", True):
+            args.append("-tc")
+        args.append(str(duration))
+        args_text = shlex.join(args)
+        return (
+            "bin=$(command -v gpu_burn) || exit 127; "
+            'real=$(readlink -f "$bin" 2>/dev/null || echo "$bin"); '
+            'dir=$(dirname "$real"); '
+            'cd "$dir" && exec "$real" '
+            f"{args_text}"
+        )
 
     def _nccl_stage(self, name: str, binary: str, required: bool) -> StageSpec:
         nccl = self.config.get("nccl", {})
@@ -530,7 +540,7 @@ class SuiteRunner:
     def _combined_stage(self, duration: int) -> StageSpec:
         fio = self.config.get("fio", {})
         stress = f"stress-ng --cpu {os.cpu_count() or 1} --cpu-method {self.config.get('stress_ng.cpu_method', 'matrixprod')} --verify --metrics-brief --timeout {duration}s"
-        gpu = f"gpu_burn -m {self.config.get('gpu_burn.memory', '90%')} {'-tc ' if self.config.get('gpu_burn.use_tensor_cores', True) else ''}{duration}"
+        gpu = self._gpu_burn_shell(duration)
         fio_cmd = (
             f"fio --name=combined_randrw --directory={self.config.fio_test_dir} --size={fio.get('size', '100G')} --rw=randrw "
             f"--bs={fio.get('bs', '1M')} --direct={1 if fio.get('direct', True) else 0} --numjobs={fio.get('numjobs', 4)} "

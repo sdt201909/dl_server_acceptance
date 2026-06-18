@@ -110,8 +110,13 @@ build_gpu_burn() {
   if [[ ! -d "$TOOLS_DIR/gpu-burn" ]]; then
     git clone https://github.com/wilicc/gpu-burn.git "$TOOLS_DIR/gpu-burn"
   fi
-  make -C "$TOOLS_DIR/gpu-burn"
-  ln -sf "$PWD/$TOOLS_DIR/gpu-burn/gpu_burn" "$TOOLS_DIR/gpu_burn"
+  local make_args=("CUDAPATH=$CUDA_HOME")
+  if [[ -n "${GPU_BURN_COMPUTE:-}" ]]; then
+    make_args+=("COMPUTE=$GPU_BURN_COMPUTE")
+  fi
+  make -C "$TOOLS_DIR/gpu-burn" clean
+  make -C "$TOOLS_DIR/gpu-burn" "${make_args[@]}"
+  link_built_binary "$TOOLS_DIR/gpu-burn" gpu_burn gpu_burn
 }
 
 build_nccl_tests() {
