@@ -50,6 +50,21 @@ need_cmd() {
   }
 }
 
+link_built_binary() {
+  local search_dir="$1"
+  local binary_name="$2"
+  local link_name="$3"
+  local found=""
+  found="$(find "$search_dir" -type f -name "$binary_name" -perm -111 -print -quit)"
+  if [[ -z "$found" ]]; then
+    echo "ERROR: $binary_name build finished but executable was not found under $search_dir." >&2
+    exit 1
+  fi
+  found="$(cd "$(dirname "$found")" && pwd -P)/$(basename "$found")"
+  ln -sf "$found" "$TOOLS_DIR/$link_name"
+  echo "Linked $TOOLS_DIR/$link_name -> $found"
+}
+
 install_ubuntu() {
   need_cmd sudo
   sudo apt-get update
@@ -118,10 +133,7 @@ build_nvbandwidth() {
   fi
   cmake -S "$src" -B "$src/build" -DCMAKE_BUILD_TYPE=Release
   cmake --build "$src/build" -j"$(nproc)"
-  find "$src/build" -type f -name nvbandwidth -perm -111 -exec ln -sf {} "$TOOLS_DIR/nvbandwidth_bin" \; || true
-  if [[ -e "$TOOLS_DIR/nvbandwidth_bin" ]]; then
-    ln -sf "$PWD/$TOOLS_DIR/nvbandwidth_bin" "$TOOLS_DIR/nvbandwidth"
-  fi
+  link_built_binary "$src/build" nvbandwidth nvbandwidth
 }
 
 build_cuda_memtest() {
@@ -140,22 +152,12 @@ build_cuda_memtest() {
     fi
     cmake "${cmake_args[@]}"
     cmake --build "$src/build" -j"$(nproc)"
-    find "$src/build" -type f -name cuda_memtest -perm -111 -exec ln -sf {} "$TOOLS_DIR/cuda_memtest_bin" \; || true
-    if [[ -e "$TOOLS_DIR/cuda_memtest_bin" ]]; then
-      ln -sf "$PWD/$TOOLS_DIR/cuda_memtest_bin" "$TOOLS_DIR/cuda_memtest"
-    fi
+    link_built_binary "$src/build" cuda_memtest cuda_memtest
   elif [[ -f "$src/Makefile" ]]; then
     make -C "$src"
-    find "$src" -type f -name cuda_memtest -perm -111 -exec ln -sf {} "$TOOLS_DIR/cuda_memtest_bin" \; || true
-    if [[ -e "$TOOLS_DIR/cuda_memtest_bin" ]]; then
-      ln -sf "$PWD/$TOOLS_DIR/cuda_memtest_bin" "$TOOLS_DIR/cuda_memtest"
-    fi
+    link_built_binary "$src" cuda_memtest cuda_memtest
   else
     echo "ERROR: cuda_memtest build file not found; expected CMakeLists.txt or Makefile under $src." >&2
-    exit 1
-  fi
-  if [[ ! -e "$TOOLS_DIR/cuda_memtest" ]]; then
-    echo "ERROR: cuda_memtest build finished but binary was not found under $src." >&2
     exit 1
   fi
 }
