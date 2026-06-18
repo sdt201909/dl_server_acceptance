@@ -33,6 +33,17 @@ def test_dmesg_edac_error_detection():
     assert risks[0]["severity"] == "HIGH"
 
 
+def test_dmesg_mce_decoder_init_is_not_a_risk():
+    risks = parse_dmesg_lines("[Thu Jun 18 02:31:01 2026] MCE: In-kernel MCE decoding enabled.")
+    assert risks == []
+
+
+def test_dmesg_mce_hardware_error_detection():
+    risks = parse_dmesg_lines("[123] mce: [Hardware Error]: Machine check events logged")
+    assert risks
+    assert risks[0]["severity"] == "CRITICAL"
+
+
 def test_dcgm_fail_and_skip_detection():
     parsed = parse_dcgm_output("GPU 0: Pass\nGPU 1: Failed\nPlugin X: Skip - Not Supported")
     assert parsed["failed"] is True

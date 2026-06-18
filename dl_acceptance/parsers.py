@@ -204,8 +204,9 @@ CRITICAL_DMESG_PATTERNS = [
     r"fallen off the bus",
     r"GPU is lost",
     r"AER:\s*Uncorrected",
-    r"\bMCE\b",
-    r"Machine Check",
+    r"\bMCE\b.*\b(error|fail|failed|failure|critical|uncorrected|exception|logged)\b",
+    r"Machine Check Exception",
+    r"Machine check events logged",
     r"hardware error",
     r"memory error",
 ]
