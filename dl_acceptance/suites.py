@@ -559,7 +559,8 @@ class SuiteRunner:
             for stage in self.stages():
                 result = self._run_stage(stage)
                 completed.append(result)
-                if result["status"] == "FAIL" and not self.continue_on_error:
+                if result["status"] == "FAIL" and result.get("required") and not self.continue_on_error:
+                    self.events.write({"timestamp": now_iso(), "event": "stop_on_required_stage_failure", "stage": result["stage"]})
                     break
                 if self.stop_on_critical_risk and self.risk_engine.has_critical() and stage.command_type in {"gpu_burn", "combined", "torch_ddp", "nccl"}:
                     self.events.write({"timestamp": now_iso(), "event": "stop_on_critical_risk", "stage": stage.name})
