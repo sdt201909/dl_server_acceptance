@@ -7,10 +7,12 @@
 ## 快速开始
 
 ```bash
+git clone https://github.com/sdt201909/dl_server_acceptance.git
 cd dl_server_acceptance
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+python3 -m pip install --upgrade pip
+python3 -m pip install -r requirements.txt
 cp acceptance.yaml.example acceptance.yaml
 
 python acceptance.py preflight --config acceptance.yaml
@@ -35,6 +37,269 @@ python acceptance.py report --run-dir ./runs/standard_001
 ```bash
 python acceptance.py list-suites
 python acceptance.py run --suite standard --config acceptance.yaml --dry-run
+```
+
+## 正式验收推荐流程
+
+下面流程面向新到货 4 卡 RTX PRO 6000 / Pro 6000 服务器，目标是做 6 小时左右长稳验收。
+
+### 1. 更新代码
+
+```bash
+cd /root/dl_server_acceptance
+git pull --ff-only
+```
+
+第一次使用：
+
+```bash
+git clone https://github.com/sdt201909/dl_server_acceptance.git
+cd dl_server_acceptance
+```
+
+### 2. 安装基础依赖
+
+Ubuntu：
+
+```bash
+sudo ./install_deps.sh --ubuntu
+```
+
+RHEL/Rocky/Alma：
+
+```bash
+sudo ./install_deps.sh --rhel
+```
+
+Python：
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python3 -m pip install --upgrade pip
+python3 -m pip install -r requirements.txt
+```
+
+### 3. 安装 CUDA 版 PyTorch
+
+`torch_ddp` smoke test 需要 CUDA 版 PyTorch。不要简单运行 `pip install torch`，这可能装到 CPU 版或不匹配的 CUDA wheel。
+
+CUDA 12.8 wheel 示例：
+
+```bash
+python3 -m pip install numpy
+python3 -m pip install -r requirements-torch-cu128.txt
+```
+
+或：
+
+```bash
+./scripts/install_torch_cuda.sh cu128
+```
+
+确认：
+
+```bash
+python3 - <<'PY'
+import torch
+print(torch.__version__)
+print(torch.cuda.is_available())
+print(torch.cuda.device_count())
+PY
+```
+
+说明：`nvidia-smi` 里的 `CUDA Version` 表示驱动最高支持的 CUDA runtime/API 版本；`nvcc --version` 表示已安装的 CUDA Toolkit 编译器版本。两者不完全相同是正常的。
+
+### 4. 安装和验证 DCGM
+
+正式验收建议安装 DCGM。`nvidia-smi` 正常不等于 `dcgmi` 已安装。
+
+```bash
+command -v dcgmi
+dcgmi --version
+dcgmi discovery -l
+```
+
+新驱动/CUDA 栈建议使用匹配的 DCGM 4 包。例如 `nvidia-smi` 显示 CUDA 13.x 时，优先查：
+
+```bash
+apt-cache search datacenter-gpu-manager-4
+apt-cache policy datacenter-gpu-manager-4-cuda13
+```
+
+安装示例：
+
+```bash
+sudo apt-get update
+sudo apt-get install -y --install-recommends datacenter-gpu-manager-4-cuda13
+```
+
+如果系统装着旧包，例如 `datacenter-gpu-manager 3.x`，可能会在 `dcgmi diag` 中出现 `Detected unsupported Cuda version`。这是 DCGM/CUDA/driver 软件栈不匹配，不是硬件失败证据。
+
+DCGM r1 还可能因为 persistence mode 未开启而 fail：
+
+```text
+Persistence Mode: Persistence mode for GPU 0 is disabled
+```
+
+这也是运行配置问题。可开启：
+
+```bash
+sudo nvidia-smi -pm 1
+dcgmi diag -r 1
+```
+
+开启 persistence mode 不会修改 power limit，不会 reset GPU，也不会重启机器。
+
+### 5. 构建可选 GPU 测试工具
+
+```bash
+export CUDA_HOME=/usr/local/cuda
+./install_deps.sh --build-tools --tools-dir ./tools
+export PATH="$PWD/tools:$PATH"
+```
+
+常见构建问题：
+
+- `nccl.h: No such file or directory`：缺 NCCL 开发包。Ubuntu 安装 `libnccl2 libnccl-dev`；RHEL 安装 `libnccl libnccl-devel`。自定义路径时设置 `NCCL_HOME` 或 `NCCL_INCLUDE/NCCL_LIB`。
+- `Could NOT find Boost ... program_options`：`nvbandwidth` 缺 Boost。Ubuntu 安装 `libboost-dev libboost-program-options-dev`；RHEL 安装 `boost-devel boost-program-options`。
+- `cuda_memtest Makefile not found`：当前上游是 CMake 工程；拉取最新脚本后会自动用 CMake 构建。
+- 构建成功但找不到二进制：拉取最新脚本，已修复相对软链问题。
+
+构建后检查：
+
+```bash
+for t in gpu_burn all_reduce_perf all_gather_perf reduce_scatter_perf nvbandwidth cuda_memtest; do
+  command -v "$t" || command -v "./tools/$t" || true
+done
+```
+
+### 6. 准备 fio 专用目录
+
+不要用 `/`、`/home`、`/var`、`/tmp` 作为 fio 写入目录。建议使用专用挂载点：
+
+```bash
+sudo mkdir -p /mnt/acceptance/fio_acceptance
+sudo chown -R "$USER:$USER" /mnt/acceptance/fio_acceptance
+df -h /mnt/acceptance/fio_acceptance
+```
+
+### 7. 创建 6 小时配置
+
+```bash
+cp acceptance.yaml.example acceptance.full6h.yaml
+```
+
+重点修改：
+
+```yaml
+paths:
+  fio_test_dir: "/mnt/acceptance/fio_acceptance"
+  tools_dir: "./tools"
+
+timeouts:
+  gpu_burn_sec_standard: 600
+  combined_sec_full: 21600
+
+fio:
+  size: "100G"
+  runtime_sec: 300
+
+memtester:
+  memory_fraction: 0.20
+  passes: 1
+
+stress_ng:
+  cpu_timeout_sec: 600
+
+torch_ddp:
+  nproc_per_node: 4
+```
+
+说明：默认 `full` 是 `standard` 全部项目加 6 小时 combined load，总墙钟时间会超过 6 小时。上面的配置把前置项缩短，把核心 CPU/GPU/fio 联合满载保持 6 小时左右。
+
+### 8. preflight
+
+```bash
+python acceptance.py preflight --config acceptance.full6h.yaml
+```
+
+确认：
+
+- GPU 数量、型号、显存匹配采购配置。
+- `nvidia-smi`、`dcgmi`、`fio`、`stress-ng`、`memtester`、`gpu_burn`、`cuda_memtest`、`nccl-tests`、`torch` 可用。
+- `fio_test_dir` 可写且空间足够。
+- dmesg 没有 `NVRM: Xid`、掉卡、AER uncorrected、真实 MCE hardware error。
+
+注意：`MCE: In-kernel MCE decoding enabled.` 是正常初始化信息，不是硬件错误；最新规则不会把它判成风险。
+
+### 9. dry-run
+
+```bash
+python acceptance.py run --suite full --config acceptance.full6h.yaml --dry-run
+```
+
+确认命令、路径、时长符合预期。尤其检查：
+
+- `combined_load` 的 timeout 接近 `combined_sec_full + 300`。
+- `fio` 目录是专用目录。
+- `torch_ddp` 会用 `torchrun` 或 `python3 -m torch.distributed.run`。
+
+### 10. 运行 6 小时长稳
+
+建议放在 `tmux` 中：
+
+```bash
+tmux new -s pro6000_full6h
+```
+
+启动：
+
+```bash
+RUN=./runs/pro6000_full6h_$(date +%Y%m%d_%H%M%S)
+
+python acceptance.py run \
+  --suite full \
+  --config acceptance.full6h.yaml \
+  --output "$RUN" \
+  --yes
+```
+
+如果 DCGM 仍有明确软件兼容问题、但你希望先收集非 DCGM 的长稳数据，可临时使用：
+
+```bash
+python acceptance.py run \
+  --suite full \
+  --config acceptance.full6h.yaml \
+  --output "$RUN" \
+  --yes \
+  --continue-on-error
+```
+
+这种结果只能作为“非 DCGM 长稳参考”，正式签收仍建议修好 DCGM 后重跑。
+
+### 11. 实时观察
+
+```bash
+tail -f "$RUN/metrics/risks.jsonl"
+tail -f "$RUN/metrics/events.jsonl"
+watch -n 5 nvidia-smi
+```
+
+如果出现 Xid、掉卡、ECC uncorrectable、温度 critical、gpu-burn/cuda_memtest/NCCL/torch DDP 错误，工具会记录 HIGH/CRITICAL 风险，默认会停止相关高负载测试。
+
+### 12. 看报告和打包
+
+```bash
+python acceptance.py report --run-dir "$RUN"
+less "$RUN/summary.md"
+python3 -m json.tool "$RUN/summary.json" | less
+```
+
+打包给供应商：
+
+```bash
+tar czf pro6000_acceptance_$(date +%Y%m%d_%H%M%S).tar.gz "$RUN"
 ```
 
 ## 安装系统依赖
@@ -142,6 +407,109 @@ paths:
 ### dcgmi 不存在怎么办
 
 `preflight` 会显示 `dcgmi` missing。quick/standard 中对应 DCGM stage 会跳过并记录风险。正式验收建议安装 NVIDIA DCGM 后复测。
+
+### DCGM 报 Detected unsupported Cuda version 怎么办
+
+这是 DCGM 与当前 driver/CUDA 软件栈不兼容，属于软件配置问题，不是硬件失败证据。典型场景是新驱动和 Blackwell GPU 搭配了旧 `datacenter-gpu-manager 3.x`。
+
+处理：
+
+```bash
+dcgmi --version
+nvidia-smi
+nvcc --version
+dpkg -l | grep -i datacenter-gpu-manager
+apt-cache search datacenter-gpu-manager-4
+```
+
+如果 `nvidia-smi` 显示 CUDA 13.x，优先安装匹配的 DCGM 4 CUDA 13 包，例如：
+
+```bash
+sudo apt-get install -y --install-recommends datacenter-gpu-manager-4-cuda13
+```
+
+然后：
+
+```bash
+dcgmi discovery -l
+dcgmi diag -r 1
+```
+
+### DCGM r1 因 Persistence Mode disabled 失败怎么办
+
+这是运行配置问题，不是硬件故障。开启：
+
+```bash
+sudo nvidia-smi -pm 1
+dcgmi diag -r 1
+```
+
+这不会修改 power limit，不会 reset GPU，也不会重启机器。
+
+### 测试很快就结束了怎么办
+
+先看 `summary.md` 的“测试套件与参数”表，找最后一个执行的 stage。
+
+- 停在 `dcgm_r1` 且 evidence 是 `Detected unsupported Cuda version`：DCGM 软件栈不兼容。
+- 停在 `dcgm_r1` 且 evidence 是 persistence mode：开启 persistence mode。
+- 停在 `dmesg_scan` 且有 `NVRM: Xid`、`fallen off the bus`、AER uncorrected、真实 MCE hardware error：硬件/驱动风险，需要暂停并收集日志。
+- 停在 `fio_*`：检查 fio 测试目录、空间、权限和磁盘健康。
+- 停在 `gpu_burn`、`cuda_memtest`、`nccl_*`、`torch_ddp`：优先查看对应 `raw_logs/*.stdout.log` 和 `*.stderr.log`。
+
+如果只是 DCGM 软件兼容问题，修好 DCGM 后重跑。若临时想收集非 DCGM 长稳数据，可以用 `--continue-on-error`，但这种结果不建议直接作为正式签收结论。
+
+### 旧报告里的误报为什么还在
+
+报告是运行时写入的静态文件。更新代码后，旧 run 目录里的 `summary.md`、`summary.json`、`risks.jsonl` 不会自动重算。需要重新跑验收，或至少重新跑相关 suite，才能得到新规则下的报告。
+
+### MCE: In-kernel MCE decoding enabled 是硬件错误吗
+
+不是。这是内核启用 MCE 解码能力的正常初始化日志。真正危险的是 `mce: [Hardware Error]`、`Machine Check Exception`、`Machine check events logged` 等实际错误事件。
+
+### 构建 nccl-tests 报 nccl.h 找不到怎么办
+
+缺 NCCL 开发包。Ubuntu：
+
+```bash
+sudo apt-get install -y libnccl2 libnccl-dev
+```
+
+RHEL/Rocky/Alma：
+
+```bash
+sudo dnf install -y libnccl libnccl-devel
+```
+
+如果 NCCL 在自定义目录，设置 `NCCL_HOME` 或 `NCCL_INCLUDE/NCCL_LIB` 后重新构建。
+
+### 构建 nvbandwidth 报 Boost program_options 缺失怎么办
+
+Ubuntu：
+
+```bash
+sudo apt-get install -y libboost-dev libboost-program-options-dev
+```
+
+RHEL/Rocky/Alma：
+
+```bash
+sudo dnf install -y boost-devel boost-program-options
+```
+
+### 构建 cuda_memtest 报 Makefile not found 怎么办
+
+当前上游 `cuda_memtest` 是 CMake 工程。请先拉取最新脚本：
+
+```bash
+git pull --ff-only
+./install_deps.sh --build-tools --tools-dir ./tools
+```
+
+如果需要指定 CUDA 架构：
+
+```bash
+CUDA_MEMTEST_CUDA_ARCHITECTURES=90 ./install_deps.sh --build-tools --tools-dir ./tools
+```
 
 ### nvidia-smi 查询字段 Not Supported 怎么办
 
