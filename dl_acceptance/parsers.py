@@ -82,8 +82,27 @@ def parse_dcgm_output(text: str) -> dict[str, Any]:
 def parse_gpu_burn_output(text: str) -> dict[str, Any]:
     bad_lines = []
     for line in text.splitlines():
-        if re.search(r"\b(error|fault|failed|compare|calculation error|hardware)\b", line, re.IGNORECASE):
-            bad_lines.append(line.strip())
+        stripped = line.strip()
+        lower = stripped.lower()
+        if not stripped:
+            continue
+        if re.search(r"\b(died|fault|failed|failure|calculation error|mismatch|miscompare|incorrect)\b", lower):
+            bad_lines.append(stripped)
+            continue
+        if re.search(r"\bhardware\b", lower) and re.search(r"\b(error|fault|failed|failure|unstable|problem)\b", lower):
+            bad_lines.append(stripped)
+            continue
+        if re.search(
+            r"((compare|comparison|miscompare).*(error|failed|failure|mismatch|incorrect|bad))|"
+            r"((error|failed|failure|mismatch|incorrect|bad).*(compare|comparison|miscompare))",
+            lower,
+        ):
+            bad_lines.append(stripped)
+            continue
+        without_harmless = re.sub(r"\bno error\b", "", lower)
+        without_harmless = re.sub(r"\berrors?\s*:\s*0\b", "", without_harmless)
+        if re.search(r"\berrors?\b", without_harmless):
+            bad_lines.append(stripped)
     return {"failed": bool(bad_lines), "bad_lines": bad_lines}
 
 

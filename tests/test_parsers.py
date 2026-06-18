@@ -2,6 +2,7 @@ from dl_acceptance.parsers import (
     parse_dcgm_output,
     parse_dmesg_lines,
     parse_fio_json_or_text,
+    parse_gpu_burn_output,
     parse_nccl_tests_output,
     parse_nvidia_smi_csv,
 )
@@ -49,6 +50,23 @@ def test_dcgm_fail_and_skip_detection():
     assert parsed["failed"] is True
     assert parsed["skipped"] is True
     assert any("Failed" in line for line in parsed["failures"])
+
+
+def test_gpu_burn_startup_success_text_is_not_failure():
+    text = (
+        "Using compare file: compare.fatbin\n"
+        "cuInit returned 0 (no error)\n"
+        "10.0% proc'd: 12345 (100000 Gflop/s) errors: 0 temps: 60 C\n"
+    )
+    parsed = parse_gpu_burn_output(text)
+    assert parsed["failed"] is False
+    assert parsed["bad_lines"] == []
+
+
+def test_gpu_burn_died_is_failure():
+    parsed = parse_gpu_burn_output("0.1% proc'd: -1 errors: 0 (DIED!) temps: 35 C\nread[0] error")
+    assert parsed["failed"] is True
+    assert len(parsed["bad_lines"]) == 2
 
 
 def test_nccl_wrong_fail_detection():
