@@ -57,6 +57,18 @@ Python 依赖：
 pip install -r requirements.txt
 ```
 
+PyTorch DDP smoke test 需要 CUDA 版 PyTorch。不要在裸机上直接 `pip install torch` 了事，容易装到不匹配的 wheel。按 PyTorch 官方安装页选择 Linux / Pip / Python / CUDA 平台；CUDA 12.8 环境可用：
+
+```bash
+python3 -m pip install numpy
+python3 -m pip install -r requirements-torch-cu128.txt
+
+# 或显式使用脚本
+./scripts/install_torch_cuda.sh cu128
+```
+
+本工具只需要 `torch` 本体，不需要 `torchvision` 或 `torchaudio`。
+
 第三方 Python 库缺失时，核心逻辑会尽量降级：没有 `rich` 就使用普通文本状态输出；没有 `psutil` 就读取 `/proc`；没有 `nvidia-ml-py` 就回退到 `nvidia-smi --query-gpu`。
 
 ## 构建可选 GPU 测试工具

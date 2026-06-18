@@ -1,0 +1,11 @@
+# Optional dependency set for the PyTorch DDP smoke test on CUDA 12.8 systems.
+# Install after the base requirements:
+#   python3 -m pip install -r requirements.txt
+#   python3 -m pip install numpy
+#   python3 -m pip install -r requirements-torch-cu128.txt
+#
+# Keep this separate from requirements.txt because PyTorch CUDA wheels are tied
+# to the target driver/CUDA platform. For other CUDA versions, use the official
+# PyTorch selector and adjust the index URL.
+--index-url https://download.pytorch.org/whl/cu128
+torch
