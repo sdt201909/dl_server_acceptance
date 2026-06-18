@@ -305,6 +305,63 @@ python3 -m json.tool "$RUN/summary.json" | less
 tar czf pro6000_acceptance_$(date +%Y%m%d_%H%M%S).tar.gz "$RUN"
 ```
 
+## 只补 GPU 6 小时测试
+
+如果 CPU、内存、fio/SMART 已经完成，不想重复前面的压测，使用 GPU-only 补测配置：
+
+```bash
+cp acceptance.gpu6h.yaml.example acceptance.gpu6h.yaml
+```
+
+这个配置默认关闭：
+
+- `stress-ng` CPU 压测
+- `memtester` 内存压测
+- `fio` 存储读写
+- `SMART/NVMe` 健康检查
+- `full` 里的 CPU/GPU/fio combined load
+- DCGM r1/r2/r3 重复诊断
+
+保留：
+
+- inventory、`nvidia-smi -q`、拓扑
+- dmesg、ECC/remapped rows 风险扫描
+- 1 分钟短监控
+- `gpu_burn` 6 小时
+- `cuda_memtest`
+- `nvbandwidth`
+- NCCL all_reduce/all_gather/reduce_scatter
+- PyTorch DDP smoke test
+
+运行前先确认不会重复重项目：
+
+```bash
+python acceptance.py run --suite standard --config acceptance.gpu6h.yaml --dry-run
+```
+
+确认 dry-run 里 `cpu_stress`、`memtester`、`fio_*`、`smart_health`、`combined_load` 都是 disabled/skipped 后再启动：
+
+```bash
+RUN=./runs/pro6000_gpu6h_$(date +%Y%m%d_%H%M%S)
+
+python acceptance.py run \
+  --suite standard \
+  --config acceptance.gpu6h.yaml \
+  --output "$RUN"
+```
+
+实时观察：
+
+```bash
+tail -f "$RUN/metrics/risks.jsonl"
+tail -f "$RUN/metrics/events.jsonl"
+watch -n 5 nvidia-smi
+```
+
+说明：这里故意不用 `full`。`full` 的额外价值是 CPU/GPU/fio 联合满载，如果前面 CPU、内存、存储已经验收完成，继续跑 `full` 就会重复这些项目。GPU-only 补测应该跑 `standard`，再通过配置关闭非 GPU 项。
+
+如果 DCGM r2/r3 还没有做过，且你希望把它们也纳入这次 GPU 侧验收，把配置里的 `tests.enable_dcgm` 改为 `true`；总耗时会比 6 小时更长，通常会额外增加 1 小时以上。
+
 ## 安装系统依赖
 
 Ubuntu：
